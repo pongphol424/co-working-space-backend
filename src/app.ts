@@ -1,0 +1,36 @@
+import express from 'express';
+import authRouter from './routes/auth.router';
+import userRouter from './routes/user/user.router';
+import userRoomTypeRouter from './routes/user/roomType.router';
+
+import adminRoomTypeRouter from './routes/admin/roomType.router';
+import adminRoomTypeStatusRouter from './routes/admin/roomTypeStatus.router';
+import adminroomRouter from './routes/admin/room.router';
+
+import roomTypeRouter from './routes/roomType.router';
+
+import { errorHandler } from './error/handlers/mainError.handler';
+
+const app = express();
+
+app.use(express.json());
+
+// Routes
+app.use('/api/auth',authRouter)
+app.use('/api/user',userRouter)
+app.use('/api/user/roomType',userRoomTypeRouter)
+
+// admin
+app.use('/api/admin/room-types',adminRoomTypeStatusRouter)
+app.use('/api/admin/room-types',adminRoomTypeRouter)
+app.use('/api/admin/rooms',adminroomRouter)
+
+
+
+
+app.use('/api/roomType',roomTypeRouter)
+// Global error handler (should be after routes)
+
+app.use(errorHandler)
+
+export default app;

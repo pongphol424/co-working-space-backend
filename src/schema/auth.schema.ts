@@ -1,0 +1,22 @@
+import * as z from 'zod';
+import { userBaseSchema } from './user.schema';
+
+
+
+export const registerSchema = userBaseSchema.extend({
+    password: z.string().min(6),
+})
+
+export const loginSchema = z.object({
+    email: z.email(),
+    password: z.string().min(6)
+})
+
+export const jwtSchema= z.object({
+    email: z.email(),
+    iat: z.number(),
+    exp: z.number()
+});
+
+export type RegisterSchema = z.infer<typeof registerSchema>
+export type JwtPayload = z.infer<typeof jwtSchema>;
