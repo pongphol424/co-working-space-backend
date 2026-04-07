@@ -1,29 +1,30 @@
 import { Request, Response, NextFunction } from 'express';
-import db from '../../config/db';
+import db, { acquireLock, releaseLock } from '../../config/db';
 import rooms from '../../db/schema/rooms';
-import roomStatus from '../../db/schema/room_status_types';
 import { and, eq, gt, or, lte, isNull, sql } from 'drizzle-orm';
-import { RoomStatusBaseSchema, StatusBaseSchema } from '../../schema/status.schema';
+import { RoomStatusCreateSchema } from '../../schema/status.schema';
 import roomTypes from '../../db/schema/room_types';
-import { RoomBaseSchema } from '../../schema/room.schema';
+import { RoomBaseSchema, RoomUpdateSchema } from '../../schema/room.schema';
 import roomStatusHistory from '../../db/schema/room_status_history';
 import roomStatusTypes from '../../db/schema/room_status_types';
+import { AppError } from '../../error/AppError';
 
 
 
 export const getRoomByRoomType = async (req: Request, res: Response) => {
     const body: RoomBaseSchema = req.body
     const date = new Date()
-    const subQueryMaxStartDate = db
+    const subQueryCurrentStatus = db
         .select({
             roomNumber: rooms.roomNumber,
-            maxStartDate: sql<Date>`MAX(${roomStatusHistory.startDate})`.as("maxStartDatee")
+            maxPriority: sql<Date>`MAX(${roomStatusTypes.priority})`.as("maxPriority")
         })
         .from(rooms)
-        .where(eq(rooms.roomTypeId, body.roomTypeId))
+        .where(
+            eq(rooms.roomTypeId, body.roomTypeId))
         .leftJoin(roomStatusHistory,
             and(
-                eq(roomStatusHistory.roomId, rooms.roomNumber),
+                eq(roomStatusHistory.roomId, rooms.id),
                 lte(roomStatusHistory.startDate, date),
                 or(
                     gt(roomStatusHistory.endDate, date),
@@ -31,94 +32,126 @@ export const getRoomByRoomType = async (req: Request, res: Response) => {
                 )
             )
         )
+        .leftJoin(roomStatusTypes,
+            eq(roomStatusTypes.id, roomStatusHistory.roomStatusTypeId)
+        )
         .groupBy(rooms.roomNumber)
         .as("al")
 
     const result = await db
-        .select({
-            roomId: rooms.id,
-            roomType: roomTypes.name,
-            roomNumber: rooms.roomNumber,
-            status: roomStatusTypes.name
-        })
+        .select(
+            {
+                roomId: rooms.id,
+                roomType: roomTypes.name,
+                roomNumber: rooms.roomNumber,
+                status: roomStatusTypes.name
+            }
+        )
         .from(rooms)
-        .innerJoin(subQueryMaxStartDate,
-                eq(rooms.roomNumber, subQueryMaxStartDate.roomNumber)
+        .innerJoin(subQueryCurrentStatus,
+            eq(rooms.roomNumber, subQueryCurrentStatus.roomNumber)
         )
-        .leftJoin(roomStatusHistory,
-            eq(rooms.id, roomStatusHistory.roomId)
-        )
-        .leftJoin(roomStatusTypes,
-            eq(roomStatusHistory.roomStatusTypeId, roomStatusTypes.id)
+        .innerJoin(roomStatusTypes,
+            eq(roomStatusTypes.priority, subQueryCurrentStatus.maxPriority)
         ).innerJoin(roomTypes,
-            eq(rooms.roomTypeId,roomTypes.id)
+            eq(rooms.roomTypeId, roomTypes.id)
         )
     res.json(result)
 }
 
 
 export const getRoomId = async (req: Request, res: Response) => {
-    const roomId:number = Number(req.params.id)
-    const date = new Date()
-    const subQueryMaxStartDate = db
-        .select({
-            roomNumber: rooms.roomNumber,
-            maxStartDate: sql<Date>`MAX(${roomStatusHistory.startDate})`.as("maxStartDatee")
-        })
-        .from(rooms)
-        .where(eq(rooms.id, roomId))
-        .leftJoin(roomStatusHistory,
-            and(
-                eq(roomStatusHistory.roomId, rooms.roomNumber),
-                lte(roomStatusHistory.startDate, date),
-                or(
-                    gt(roomStatusHistory.endDate, date),
-                    isNull(roomStatusHistory.endDate)
-                )
-            )
-        )
-        .groupBy(rooms.roomNumber)
-        .as("al")
-
-    const result = await db
+    const roomId: number = Number(req.params.id)
+    const room = (await db
         .select({
             roomId: rooms.id,
             roomType: roomTypes.name,
             roomNumber: rooms.roomNumber,
-            status: roomStatusTypes.name
         })
         .from(rooms)
-        .innerJoin(subQueryMaxStartDate,
-            eq(rooms.roomNumber, subQueryMaxStartDate.roomNumber),
+        .where(
+            eq(rooms.id, roomId)
         )
-        .leftJoin(roomStatusHistory,
-            eq(rooms.id, roomStatusHistory.roomId)
+        .innerJoin(roomTypes,
+            eq(roomTypes.id, rooms.roomTypeId)
+        ))[0]
+    const status = await db
+        .select(
+            {
+                statusName: roomStatusTypes.name,
+                startDate: roomStatusHistory.startDate,
+                endDate: roomStatusHistory.endDate
+            }
         )
-        .leftJoin(roomStatusTypes,
-            eq(roomStatusHistory.roomStatusTypeId, roomStatusTypes.id)
-        ).innerJoin(roomTypes,
-            eq(rooms.roomTypeId,roomTypes.id)
+        .from(roomStatusHistory)
+        .where(
+            eq(roomStatusHistory.roomId, roomId)
         )
-    res.json(result)
+        .innerJoin(roomStatusTypes,
+            eq(roomStatusTypes.id, roomStatusHistory.roomStatusTypeId)
+        )
+        .orderBy(roomStatusHistory.startDate)
+    const roomWithStatue = {
+        room,
+        status
+    }
+    if (res.locals.message) {
+        return res.json({
+            message: res.locals.message,
+            roomWithStatue
+        })
+    }
+    res.json(roomWithStatue)
 }
 
 
 export const createRoom = async (req: Request, res: Response, next: NextFunction) => {
     const body: RoomBaseSchema = req.body
-    const date = new Date()
-    const room:RoomBaseSchema = {
-        roomTypeId: body.roomTypeId,
-        roomNumber: Number(`${body.roomTypeId}${body.roomNumber}`)
+    const admin = req.admin
+    if (!admin) {
+        throw new AppError("not found admin data in req.admin", 404)
     }
-    const insertRoom = await db.insert(rooms).values(room)
-    const roomWithStatue: RoomStatusBaseSchema = {
+    const date = new Date()
+    const insertRoom = await db.insert(rooms).values(body)
+    const roomWithStatue: RoomStatusCreateSchema = {
+        createdBy: admin.uuid,
+        updatedBy: admin.uuid,
         roomId: insertRoom[0].insertId,
         roomStatusTypeId: 1,
-        startDate: date
+        startDate: date,
+        description: "First Available Date"
     }
     const insertStatus = await db.insert(roomStatusHistory).values(roomWithStatue)
     req.params.id = String(insertRoom[0].insertId)
     res.locals.message = "Create complete"
+    next()
+}
+
+
+export const updateRoom = async (req: Request, res: Response, next: NextFunction) => {
+    const body: RoomUpdateSchema = req.body
+    if (!body) {
+        throw new AppError("no input data", 400)
+    }
+    const roomId = Number(req.params.id)
+    const existsRoom = await db.select()
+        .from(rooms)
+        .where(eq(rooms.id, roomId))
+        .limit(1)
+    if (existsRoom.length === 0) {
+        throw new AppError("Room ID not found", 404)
+    }
+    const checkDuplicateRoomNumber = await db.select()
+            .from(rooms)
+            .where(eq(rooms.roomNumber, body.roomNumber))
+            .limit(1)
+        if (checkDuplicateRoomNumber.length > 0) {
+            throw new AppError("Room Number already exists", 400)
+        }
+        const result = await db.update(rooms)
+            .set(body)
+            .where(eq(rooms.id, roomId))
+    res.locals.message = "Update complete"
     next()
 }
 

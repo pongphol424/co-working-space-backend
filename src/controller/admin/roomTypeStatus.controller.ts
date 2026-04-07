@@ -152,32 +152,39 @@ export const updateRoomTypeStatus = async (req: Request, res: Response, next: Ne
     let lockConn = null
     lockConn = await acquireLock(lockName)
     let overLappingStatus: any = []
-    const priority = (await db
-        .select({
-            prioritynumber: roomStatusTypes.priority
-        })
-        .from(roomStatusTypes)
-        .where(
-            eq(roomStatusTypes.id, body.statusTypeId)
-        ))[0]
+    const existsRoomTypeStatus = await db.select({ id: roomTypeStatusHistory.id })
+        .from(roomTypeStatusHistory)
+        .where(eq(roomTypeStatusHistory.id, statusHistoryId))
+        .limit(1)
+    if (existsRoomTypeStatus.length === 0) {
+        throw new AppError("Room Type ID not found", 404)
+    }
     try {
+        const priority = (await db
+            .select({
+                prioritynumber: roomStatusTypes.priority
+            })
+            .from(roomStatusTypes)
+            .where(
+                eq(roomStatusTypes.id, body.statusTypeId)
+            ))[0]
         const overLappingStatus = await getOverlappingStatus(
             body,
             priority.prioritynumber,
             roomTypeId
         ) ?? []
-    if (overLappingStatus.length > 0) {
-        checkOverlapConflict(overLappingStatus,body.statusTypeId,res)
+        if (overLappingStatus.length > 0) {
+            checkOverlapConflict(overLappingStatus, body.statusTypeId, res)
+        }
+        const result = await db.update(roomTypeStatusHistory)
+            .set(body)
+            .where(eq(roomTypeStatusHistory.id, statusHistoryId))
+        next()
+    } finally {
+        if (lockConn) {
+            await releaseLock(lockConn, lockName)
+        }
     }
-    const result = await db.update(roomTypeStatusHistory)
-        .set(body)
-        .where(eq(roomTypeStatusHistory.id, statusHistoryId))
-    next()
-} finally {
-    if (lockConn) {
-        await releaseLock(lockConn, lockName)
-    }
-}
 }
 
 
@@ -187,11 +194,22 @@ export const deleteRoomTypeStatus = async (req: Request, res: Response, next: Ne
     const lockName: string = `roomType${roomTypeId}`
     let lockConn = null
     lockConn = await acquireLock(lockName)
-    const result = await db.delete(roomTypeStatusHistory)
-        .where(eq(roomTypeStatusHistory.id, statusHistoryId))
-    if (lockConn) {
-        await releaseLock(lockConn, lockName)
+    try {
+        const existsRoomTypeStatus = await db.select({ id: roomTypeStatusHistory.id })
+            .from(roomTypeStatusHistory)
+            .where(eq(roomTypeStatusHistory.id, statusHistoryId))
+            .limit(1)
+        if (existsRoomTypeStatus.length === 0) {
+            throw new AppError("Room Type ID not found", 404)
+        }
+        const result = await db.delete(roomTypeStatusHistory)
+            .where(eq(roomTypeStatusHistory.id, statusHistoryId))
+
+        res.locals.message = "Delete complete"
+        next()
+    } finally {
+        if (lockConn) {
+            await releaseLock(lockConn, lockName)
+        }
     }
-    res.locals.message = "Delete complete"
-    next()
 }

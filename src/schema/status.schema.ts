@@ -65,22 +65,28 @@ export const roomStatusBase = statusBaseSchema.extend({
     roomStatusTypeId: z.number().min(1)
 })
 
+export const roomStatusCreate = roomStatusBase.extend({
+    createdBy: z.string().trim().length(36),
+    updatedBy: z.string().trim().length(36),
+})
+
 
 // overlapingStatus
-export interface overLappingStatus{
+export interface overLappingStatus {
     startDate: Date;
     endDate: Date | null;
     statusId: number;
     status: "Available" | "Unavailable" | "Maintenance" | "in_use";
 }
 
-export interface overLappingStatusArray extends Array<overLappingStatus>{}
+export interface overLappingStatusArray extends Array<overLappingStatus> { }
 
 export type StatusBaseSchema = z.infer<typeof statusBaseSchema>
 export type StatusCreateInputSchema = z.infer<typeof statusCreateInputSchema>
 export type StatusCreateSchema = z.infer<typeof statusCreateSchema>
 export type StatusUpdateSchema = z.infer<typeof statusUpdateSchema>
 export type RoomStatusBaseSchema = z.infer<typeof roomStatusBase>
+export type RoomStatusCreateSchema = z.infer<typeof roomStatusCreate>
 
 
 

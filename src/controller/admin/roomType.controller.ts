@@ -8,6 +8,7 @@ import facilities from '../../db/schema/facilities';
 import { and, eq, lte, gt, isNull, or, desc, asc, sql } from 'drizzle-orm';
 import roomStatusTypes from '../../db/schema/room_status_types';
 import { AppError } from '../../error/AppError';
+import rooms from '../../db/schema/rooms';
 
 
 
@@ -96,7 +97,7 @@ export const getRoomTypes = async (req: Request, res: Response) => {
         )
         .from(roomTypeStatusHistory)
         .innerJoin(roomStatusTypes,
-            eq(roomTypeStatusHistory.statusTypeId,roomStatusTypes.id)
+            eq(roomTypeStatusHistory.statusTypeId, roomStatusTypes.id)
         )
         .innerJoin(subRoomTypeStatusMaxPriority,
             and(
@@ -104,10 +105,6 @@ export const getRoomTypes = async (req: Request, res: Response) => {
                 eq(roomStatusTypes.priority, subRoomTypeStatusMaxPriority.maxPriority)
             )
         )
-
-    // if (!roomTypeStatusCurrent.length) {
-    //     throw new AppError("Status roomType not found", 404)
-    // }
 
     const statusMap: { [key: number]: any } = {}
     for (let i = 0; i < roomTypeStatusCurrent.length; i++) {
@@ -161,9 +158,6 @@ export const getRoomTypeById = async (req: Request, res: Response) => {
         .where(eq(roomTypeStatusHistory.roomTypeId, id))
         .innerJoin(roomStatusTypes, eq(roomStatusTypes.id, roomTypeStatusHistory.statusTypeId))
         .orderBy(roomTypeStatusHistory.startDate)
-    // if (!roomTypeQuery.length) {
-    //     throw new AppError("RoomType status not found", 404)
-    // }
 
     const roomTypeMap: { [key: number]: any } = {}
     for (let i = 0; i < roomTypeQuery.length; i++) {
@@ -191,6 +185,13 @@ export const updateRoomType = async (req: Request, res: Response, next: NextFunc
     const body: RoomTypeUpdateSchema = req.body
     const id = Number(req.params.id)
     const { facilityIds, ...roomType } = body
+    const existsRoomType = await db.select({ id: roomTypes.id })
+        .from(roomTypes)
+        .where(eq(rooms.id, id))
+        .limit(1)
+    if (existsRoomType.length === 0) {
+        throw new AppError("RoomType ID not found", 404)
+    }
     const transaction = await db.transaction(async (tx) => {
         if (facilityIds) {
             const resultDelete = await tx.delete(roomTypesFacilities)

@@ -25,7 +25,7 @@ for(let i = 0 ; i < handlers.length ; i++){
 }
 
   res.status(400).json({
-    error: err.message,
+    error: err,
     stack: err.stack,
     message: "test"
   })
