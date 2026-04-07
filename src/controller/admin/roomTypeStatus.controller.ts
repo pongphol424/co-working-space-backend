@@ -6,6 +6,7 @@ import { StatusBaseSchema, StatusCreateInputSchema, StatusCreateSchema, StatusUp
 import roomStatusTypes from '../../db/schema/room_status_types';
 import roomTypes from '../../db/schema/room_types';
 import { AppError } from '../../error/AppError';
+import { checkOverlapConflict, getOverlappingStatus } from '../../utils/statusOverlap';
 
 
 
@@ -114,7 +115,6 @@ export const createRoomTypeStatus = async (req: Request, res: Response, next: Ne
     const lockName: string = `roomType${roomTypeId}`
     let lockConn = null
     lockConn = await acquireLock(lockName)
-    let overLappingStatus: any = []
     const priority = (await db
         .select({
             prioritynumber: roomStatusTypes.priority
@@ -124,71 +124,13 @@ export const createRoomTypeStatus = async (req: Request, res: Response, next: Ne
             eq(roomStatusTypes.id, body.statusTypeId)
         ))[0]
     try {
-        if (body.endDate) {
-            overLappingStatus = await db
-                .select({
-                    startDate: roomTypeStatusHistory.startDate,
-                    endDate: roomTypeStatusHistory.endDate,
-                    statusId: roomTypeStatusHistory.statusTypeId,
-                    status: roomStatusTypes.name
-                })
-                .from(roomTypeStatusHistory)
-                .where(
-                    and(
-                        eq(roomTypeStatusHistory.roomTypeId, roomTypeId),
-                        lt(roomTypeStatusHistory.startDate, body.endDate),
-                        gte(roomTypeStatusHistory.endDate, body.endDate)
-                    )
-                )
-                .innerJoin(roomStatusTypes,
-                    and(
-                        eq(roomStatusTypes.id, roomTypeStatusHistory.statusTypeId),
-                        gte(roomStatusTypes.priority, priority.prioritynumber)
-                    )
-                ).orderBy(asc(roomTypeStatusHistory.startDate));
-        };
-        if (!body.endDate) {
-            overLappingStatus = await db
-                .select({
-                    startDate: roomTypeStatusHistory.startDate,
-                    endDate: roomTypeStatusHistory.endDate,
-                    statusId: roomTypeStatusHistory.statusTypeId,
-                    status: roomStatusTypes.name
-                })
-                .from(roomTypeStatusHistory)
-                .where(
-                    and(
-                        eq(roomTypeStatusHistory.roomTypeId, roomTypeId),
-                        or(
-                            and(
-                                lte(roomTypeStatusHistory.startDate, body.startDate),
-                                gt(roomTypeStatusHistory.endDate, body.startDate)
-                            ),
-                            and(
-                                eq(roomTypeStatusHistory.startDate, body.startDate),
-                                isNull(roomTypeStatusHistory.endDate)
-                            )
-                        )
-                    )
-                )
-                .innerJoin(roomStatusTypes,
-                    and(
-                        eq(roomStatusTypes.id, roomTypeStatusHistory.statusTypeId),
-                        gte(roomStatusTypes.priority, priority.prioritynumber)
-                    )
-                ).orderBy(asc(roomTypeStatusHistory.startDate));
-        };
+        const overLappingStatus = await getOverlappingStatus(
+            body,
+            priority.prioritynumber,
+            roomTypeId
+        ) ?? []
         if (overLappingStatus.length > 0) {
-            for (let i: number = 0; i < overLappingStatus.length; i++) {
-                const endDateStr = overLappingStatus[i].endDate
-                    ? overLappingStatus[i].endDate?.toISOString().split("T")[0]
-                    : "ongoing"
-                if (overLappingStatus[i].statusId === body.statusTypeId) {
-                    const message = `Can't set this status.Because this status overlaps with the existing ${overLappingStatus[i].status} status, which starting on ${overLappingStatus[i].startDate.toISOString().split("T")[0]} ${endDateStr === "ongoing" ? "and is still ongoing" : `to ${endDateStr}`}. Please resolve the overlapping status before setting this status.`
-                    throw new AppError(message, 404)
-                }
-                res.locals.message = `This status has lower priority than the existing ${overLappingStatus[i].status} status, which starting on ${overLappingStatus[i].startDate.toISOString().split("T")[0]} ${endDateStr === "ongoing" ? "and is still ongoing" : `to ${endDateStr}`}. Please ensure it works correctly.`
-            }
+            checkOverlapConflict(overLappingStatus, body.statusTypeId, res)
         }
         const insertStatusHistory = await db
             .insert(roomTypeStatusHistory)
@@ -203,19 +145,39 @@ export const createRoomTypeStatus = async (req: Request, res: Response, next: Ne
 
 
 export const updateRoomTypeStatus = async (req: Request, res: Response, next: NextFunction) => {
-    const body: StatusBaseSchema = req.body
+    const body: StatusCreateInputSchema = req.body
     const statusHistoryId: number = Number(req.params.statusHistoryId)
     const roomTypeId: number = Number(req.params.roomTypeId)
     const lockName: string = `roomType${roomTypeId}`
     let lockConn = null
     lockConn = await acquireLock(lockName)
+    let overLappingStatus: any = []
+    const priority = (await db
+        .select({
+            prioritynumber: roomStatusTypes.priority
+        })
+        .from(roomStatusTypes)
+        .where(
+            eq(roomStatusTypes.id, body.statusTypeId)
+        ))[0]
+    try {
+        const overLappingStatus = await getOverlappingStatus(
+            body,
+            priority.prioritynumber,
+            roomTypeId
+        ) ?? []
+    if (overLappingStatus.length > 0) {
+        checkOverlapConflict(overLappingStatus,body.statusTypeId,res)
+    }
     const result = await db.update(roomTypeStatusHistory)
         .set(body)
         .where(eq(roomTypeStatusHistory.id, statusHistoryId))
+    next()
+} finally {
     if (lockConn) {
         await releaseLock(lockConn, lockName)
     }
-    next()
+}
 }
 
 

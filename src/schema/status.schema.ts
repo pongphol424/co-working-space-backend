@@ -66,6 +66,15 @@ export const roomStatusBase = statusBaseSchema.extend({
 })
 
 
+// overlapingStatus
+export interface overLappingStatus{
+    startDate: Date;
+    endDate: Date | null;
+    statusId: number;
+    status: "Available" | "Unavailable" | "Maintenance" | "in_use";
+}
+
+export interface overLappingStatusArray extends Array<overLappingStatus>{}
 
 export type StatusBaseSchema = z.infer<typeof statusBaseSchema>
 export type StatusCreateInputSchema = z.infer<typeof statusCreateInputSchema>
