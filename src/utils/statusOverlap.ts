@@ -1,81 +1,86 @@
 import { and, asc, eq, gt, gte, isNull, lt, lte, or } from "drizzle-orm";
 import db from "../config/db";
 import roomStatusTypes from "../db/schema/room_status_types";
-import roomTypeStatusHistory from "../db/schema/room_type_status_history";
-import { overLappingStatusArray, StatusCreateInputSchema } from "../schema/status.schema";
+import { StatusCreateInputSchema } from "../schema/status.schema";
 import { AppError } from "../error/AppError";
 import { Request, Response, NextFunction } from 'express';
+import { OverlapConfig, OverlappingStatusArray } from "../types/overlap.type";
+import { AnyMySqlColumn, AnyMySqlTable } from "drizzle-orm/mysql-core";
 
 
 
 
-
-export const getOverlappingStatus = (
+export const getOverlappingStatus = <
+    Table extends AnyMySqlTable,
+    RoomId extends AnyMySqlColumn,
+    StatusTypeId extends AnyMySqlColumn,
+    StatusTypeName extends AnyMySqlColumn,
+    StartDate extends AnyMySqlColumn,
+    EndDate extends AnyMySqlColumn
+>(
     body: StatusCreateInputSchema,
     priority: number,
-    roomTypeId: number
+    roomId: number,
+    config: OverlapConfig<Table, RoomId, StatusTypeId, StatusTypeName, StartDate, EndDate>
 ) => {
     if (body.endDate) {
         return db
             .select({
-                startDate: roomTypeStatusHistory.startDate,
-                endDate: roomTypeStatusHistory.endDate,
-                statusId: roomTypeStatusHistory.statusTypeId,
-                status: roomStatusTypes.name
+                startDate: config.startDateField,
+                endDate: config.endDateField,
+                statusTypeId: config.statusTypeIdField,
+                statusTypeName: config.statusTypeNameField
             })
-            .from(roomTypeStatusHistory)
+            .from(config.table)
             .where(
                 and(
-                    eq(roomTypeStatusHistory.roomTypeId, roomTypeId),
-                    lt(roomTypeStatusHistory.startDate, body.endDate),
-                    or(
-                        gte(roomTypeStatusHistory.endDate, body.endDate),
-                        lte(roomTypeStatusHistory.endDate,body.endDate)
-                    )
+                    eq(config.roomIdField, roomId),
+                    lt(config.startDateField, body.endDate),
+                    gt(config.endDateField,body.startDate)
                 )
             )
             .innerJoin(roomStatusTypes,
                 and(
-                    eq(roomStatusTypes.id, roomTypeStatusHistory.statusTypeId),
+                    eq(roomStatusTypes.id, config.statusTypeIdField),
                     gte(roomStatusTypes.priority, priority)
                 )
-            ).orderBy(asc(roomTypeStatusHistory.startDate));
+            ).orderBy(asc(config.startDateField));
     };
     if (!body.endDate) {
         return db
             .select({
-                startDate: roomTypeStatusHistory.startDate,
-                endDate: roomTypeStatusHistory.endDate,
-                statusId: roomTypeStatusHistory.statusTypeId,
-                status: roomStatusTypes.name
+                startDate: config.startDateField,
+                endDate: config.endDateField,
+                statusTypeId: config.statusTypeIdField,
+                statusTypeName: config.statusTypeNameField
             })
-            .from(roomTypeStatusHistory)
+            .from(config.table)
             .where(
                 and(
-                    eq(roomTypeStatusHistory.roomTypeId, roomTypeId),
+                    eq(config.roomIdField, roomId),
                     or(
                         and(
-                            lte(roomTypeStatusHistory.startDate, body.startDate),
-                            gt(roomTypeStatusHistory.endDate, body.startDate)
+                            lte(config.startDateField, body.startDate),
+                            gt(config.endDateField, body.startDate)
                         ),
                         and(
-                            eq(roomTypeStatusHistory.startDate, body.startDate),
-                            isNull(roomTypeStatusHistory.endDate)
+                            eq(config.startDateField, body.startDate),
+                            isNull(config.endDateField)
                         )
                     )
                 )
             )
             .innerJoin(roomStatusTypes,
                 and(
-                    eq(roomStatusTypes.id, roomTypeStatusHistory.statusTypeId),
+                    eq(roomStatusTypes.id, config.statusTypeIdField),
                     gte(roomStatusTypes.priority, priority)
                 )
-            ).orderBy(asc(roomTypeStatusHistory.startDate));
+            ).orderBy(asc(config.startDateField));
     }
 }
 
 export const checkOverlapConflict = (
-    overLappingStatus: overLappingStatusArray,
+    overLappingStatus: OverlappingStatusArray,
     statusTypeId: number,
     res: Response
 ) => {
@@ -85,11 +90,11 @@ export const checkOverlapConflict = (
         const endDateStr = overLappingStatus[i].endDate
             ? overLappingStatus[i].endDate?.toISOString().split("T")[0]
             : "ongoing"
-        if (overLappingStatus[i].statusId === statusTypeId) {
-            statusOverlap.push(`${overLappingStatus[i].status} status, which starting on ${overLappingStatus[i].startDate.toISOString().split("T")[0]} ${endDateStr === "ongoing" ? "and is still ongoing" : `to ${endDateStr}`}`)
+        if (overLappingStatus[i].statusTypeId === statusTypeId) {
+            statusOverlap.push(`${overLappingStatus[i].statusTypeName} status, which starting on ${overLappingStatus[i].startDate.toISOString().split("T")[0]} ${endDateStr === "ongoing" ? "and is still ongoing" : `to ${endDateStr}`}`)
             continue
         }
-        statusLowerPrior.push(`${overLappingStatus[i].status} status, which starting on ${overLappingStatus[i].startDate.toISOString().split("T")[0]} ${endDateStr === "ongoing" ? "and is still ongoing" : `to ${endDateStr}`}`)
+        statusLowerPrior.push(`${overLappingStatus[i].statusTypeName} status, which starting on ${overLappingStatus[i].startDate.toISOString().split("T")[0]} ${endDateStr === "ongoing" ? "and is still ongoing" : `to ${endDateStr}`}`)
     }
     if (statusOverlap.length > 0) {
         let message: string = ''
