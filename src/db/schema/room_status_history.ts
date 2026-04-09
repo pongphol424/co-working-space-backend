@@ -10,12 +10,13 @@ const roomStatusHistory = t.mysqlTable('room_status_history',{
     roomId: t.bigint('room_id',{mode:"number",unsigned:true})
         .references(()=>rooms.id,{onDelete:"restrict"})
         .notNull(),
-    roomStatusTypeId: t.bigint('room_status_type_id',{mode:"number",unsigned:true})
+    statusTypeId: t.bigint('status_type_id',{mode:"number",unsigned:true})
         .references(()=>roomStatusType.id,{onDelete:'restrict'})
         .notNull(),
     startDate: t.datetime('start_date',{mode:"date"}).notNull(),
     endDate: t.datetime('end_date',{mode:"date"}),
-        createdBy: t.varchar('create_by', { length: 36 })
+    description: t.text("description"),
+    createdBy: t.varchar('create_by', { length: 36 })
         .references(() => users.uuid, { onDelete: "restrict" })
         .notNull(),
     createAt: t.timestamp('create_at').notNull().defaultNow(),

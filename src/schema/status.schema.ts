@@ -25,57 +25,58 @@ const validateStartDateEndDate = (data: any, ctx: any) => {
     }
 }
 
+const validateEndDateUpdate = (data: any, ctx: any) => {
+    let date = new Date()
+    date.setDate(date.getDate() - 3)
+    if (data.endDate) {
+        if (data.endDate < date) {
+            ctx.addIssue({
+                path: ["endDate"],
+                code: 'custom',
+                message: `End date cannot be more than 3 days in the past`
+            })
+        }
+    }
+}
 
 export const statusBaseSchema = z.object({
-    startDate: z.coerce.date().min(new Date()),
     endDate: z.coerce.date().min(new Date()).nullable().optional(),
     description: z.string().nullable().optional()
-}).superRefine(requireStartDateEndDate).superRefine(validateStartDateEndDate)
+})
 
 
 // roomType
 export const statusCreateInputSchema = statusBaseSchema.extend({
+    startDate: z.coerce.date().min(new Date()),
     statusTypeId: z.number().min(1),
-})
+}).superRefine(requireStartDateEndDate).superRefine(validateStartDateEndDate)
 
 export const statusCreateSchema = statusCreateInputSchema.extend({
     createdBy: z.string().trim().length(36),
     updatedBy: z.string().trim().length(36),
 })
 
-export const statusUpdateSchema = statusBaseSchema.extend({
+export const statusUpdateInputSchema = z.object({
+    startDate: z.coerce.date().min(new Date()).optional(),
+    endDate: z.coerce.date().nullable().optional(),
+    description: z.string().nullable().optional(),
+    statusTypeId: z.number().min(1).optional()
+}).superRefine(validateStartDateEndDate).superRefine(validateEndDateUpdate)
+
+export const statusUpdateSchema = statusUpdateInputSchema.extend({
     updatedBy: z.string().trim().length(36)
 })
 
 
-// room
-export const roomStatusBase = statusBaseSchema.extend({
-    roomId: z.number().min(1),
-    roomStatusTypeId: z.number().min(1)
-})
-
-export const roomStatusCreate = roomStatusBase.extend({
-    createdBy: z.string().trim().length(36),
-    updatedBy: z.string().trim().length(36),
-})
-
 
 // overlapingStatus
-export interface overLappingStatus {
-    startDate: Date;
-    endDate: Date | null;
-    statusId: number;
-    status: "Available" | "Unavailable" | "Maintenance" | "in_use";
-}
 
-export interface overLappingStatusArray extends Array<overLappingStatus>{}
 
 export type StatusBaseSchema = z.infer<typeof statusBaseSchema>
 export type StatusCreateInputSchema = z.infer<typeof statusCreateInputSchema>
 export type StatusCreateSchema = z.infer<typeof statusCreateSchema>
+export type StatusUpdateInputSchema = z.infer<typeof statusUpdateInputSchema>
 export type StatusUpdateSchema = z.infer<typeof statusUpdateSchema>
-export type RoomStatusBaseSchema = z.infer<typeof roomStatusBase>
-export type RoomStatusCreateSchema = z.infer<typeof roomStatusCreate>
 
 
 
