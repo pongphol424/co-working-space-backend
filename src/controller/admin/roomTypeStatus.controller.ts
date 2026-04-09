@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import db, { acquireLock, releaseLock } from '../../config/db';
 import roomTypeStatusHistory from '../../db/schema/room_type_status_history';
 import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or, sql } from 'drizzle-orm';
-import { StatusBaseSchema, StatusCreateInputSchema, StatusCreateSchema, StatusUpdateSchema } from '../../schema/status.schema';
+import { StatusBaseSchema, StatusCreateInputSchema, StatusCreateSchema, StatusUpdateInputSchema, StatusUpdateSchema } from '../../schema/status.schema';
 import roomStatusTypes from '../../db/schema/room_status_types';
 import roomTypes from '../../db/schema/room_types';
 import { AppError } from '../../error/AppError';
@@ -124,13 +124,21 @@ export const createRoomTypeStatus = async (req: Request, res: Response, next: Ne
             eq(roomStatusTypes.id, body.statusTypeId)
         ))[0]
     try {
-        const overLappingStatus = await getOverlappingStatus(
+        const overlappingStatus = await getOverlappingStatus(
             body,
             priority.prioritynumber,
-            roomTypeId
+            roomTypeId,
+            {
+                table: roomTypeStatusHistory,
+                roomIdField: roomTypeStatusHistory.roomTypeId,
+                statusTypeIdField: roomTypeStatusHistory.statusTypeId,
+                statusTypeNameField: roomStatusTypes.name,
+                startDateField: roomTypeStatusHistory.startDate,
+                endDateField: roomTypeStatusHistory.endDate
+            }
         ) ?? []
-        if (overLappingStatus.length > 0) {
-            checkOverlapConflict(overLappingStatus, body.statusTypeId, res)
+        if (overlappingStatus.length > 0) {
+            checkOverlapConflict(overlappingStatus, body.statusTypeId, res)
         }
         const insertStatusHistory = await db
             .insert(roomTypeStatusHistory)
@@ -145,7 +153,7 @@ export const createRoomTypeStatus = async (req: Request, res: Response, next: Ne
 
 
 export const updateRoomTypeStatus = async (req: Request, res: Response, next: NextFunction) => {
-    const body: StatusCreateInputSchema = req.body
+    const body: StatusUpdateInputSchema = req.body
     const admin = req.admin
     if (!admin) {
         throw new AppError("not found admin data in req.admin", 404)
@@ -155,38 +163,58 @@ export const updateRoomTypeStatus = async (req: Request, res: Response, next: Ne
     const lockName: string = `roomType${roomTypeId}`
     let lockConn = null
     lockConn = await acquireLock(lockName)
-    let overLappingStatus: any = []
-    const existsRoomTypeStatus = await db.select({ id: roomTypeStatusHistory.id })
+    const existsRoomTypeStatus = await db
+        .select({ roomTypeStatusHistoryId: roomTypeStatusHistory.id })
         .from(roomTypeStatusHistory)
         .where(eq(roomTypeStatusHistory.id, statusHistoryId))
         .limit(1)
     if (existsRoomTypeStatus.length === 0) {
         throw new AppError("Room Type ID not found", 404)
     }
+
     try {
-        const priority = (await db
-            .select({
-                prioritynumber: roomStatusTypes.priority
+        const transaction = await db.transaction(async (tx) => {
+                const roomTypeStatusUpdate: StatusUpdateSchema = {
+                    ...body,
+                    updatedBy: admin.uuid
+                }
+
+                await tx
+                    .update(roomTypeStatusHistory)
+                    .set(roomTypeStatusUpdate)
+                    .where(eq(roomTypeStatusHistory.id, statusHistoryId));
+
+                const newRoomTypeStatus = (await tx
+                    .select({
+                        statusTypeId: roomTypeStatusHistory.statusTypeId,
+                        startDate: roomTypeStatusHistory.startDate,
+                        endDate: roomTypeStatusHistory.endDate,
+                        priority: roomStatusTypes.priority
+                    })
+                    .from(roomTypeStatusHistory)
+                    .where(eq(roomTypeStatusHistory.id, statusHistoryId))
+                    .innerJoin(roomStatusTypes,
+                        eq(roomTypeStatusHistory.statusTypeId, roomStatusTypes.id)
+                    )
+                    .limit(1))[0]
+                const priority: number = newRoomTypeStatus.priority
+                const overLappingStatus = await getOverlappingStatus(
+                    newRoomTypeStatus,
+                    priority,
+                    roomTypeId,
+                    {
+                        table: roomTypeStatusHistory,
+                        roomIdField: roomTypeStatusHistory.roomTypeId,
+                        statusTypeIdField: roomTypeStatusHistory.statusTypeId,
+                        statusTypeNameField: roomStatusTypes.name,
+                        startDateField: roomTypeStatusHistory.startDate,
+                        endDateField: roomTypeStatusHistory.endDate
+                    }
+                ) ?? []
+                if (overLappingStatus.length > 0) {
+                    checkOverlapConflict(overLappingStatus, newRoomTypeStatus.statusTypeId, res)
+                }
             })
-            .from(roomStatusTypes)
-            .where(
-                eq(roomStatusTypes.id, body.statusTypeId)
-            ))[0]
-        const overLappingStatus = await getOverlappingStatus(
-            body,
-            priority.prioritynumber,
-            roomTypeId
-        ) ?? []
-        if (overLappingStatus.length > 0) {
-            checkOverlapConflict(overLappingStatus, body.statusTypeId, res)
-        }
-        const roomTypeStatusUpdate: StatusUpdateSchema = {
-            ...body,
-            updatedBy: admin.uuid
-        }
-        const result = await db.update(roomTypeStatusHistory)
-            .set(roomTypeStatusUpdate)
-            .where(eq(roomTypeStatusHistory.id, statusHistoryId))
         next()
     } finally {
         if (lockConn) {
