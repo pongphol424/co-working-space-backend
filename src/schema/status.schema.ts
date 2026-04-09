@@ -1,5 +1,3 @@
-import { isNull } from 'drizzle-orm';
-import path from 'node:path';
 import * as z from 'zod';
 
 const requireStartDateEndDate = (data: any, ctx: any) => {
@@ -12,15 +10,6 @@ const requireStartDateEndDate = (data: any, ctx: any) => {
             message: "startDate is required"
         })
     }
-    // if ([1,4].includes(data.statusTypeId) && data.endDate) {
-    //     ctx.addIssue({
-    //         path: ["EndDate"],
-    //         input: 'date',
-    //         code: 'custom',
-    //         expected: 'date',
-    //         message: "End date cannot be set manually for Available status."
-    //     })
-    // }
 }
 
 const validateStartDateEndDate = (data: any, ctx: any) => {
@@ -55,7 +44,7 @@ export const statusCreateSchema = statusCreateInputSchema.extend({
 })
 
 export const statusUpdateSchema = statusBaseSchema.extend({
-    statusHistoryId: z.number().min(1)
+    updatedBy: z.string().trim().length(36)
 })
 
 
@@ -79,7 +68,7 @@ export interface overLappingStatus {
     status: "Available" | "Unavailable" | "Maintenance" | "in_use";
 }
 
-export interface overLappingStatusArray extends Array<overLappingStatus> { }
+export interface overLappingStatusArray extends Array<overLappingStatus>{}
 
 export type StatusBaseSchema = z.infer<typeof statusBaseSchema>
 export type StatusCreateInputSchema = z.infer<typeof statusCreateInputSchema>

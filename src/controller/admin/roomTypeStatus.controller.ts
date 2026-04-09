@@ -146,6 +146,10 @@ export const createRoomTypeStatus = async (req: Request, res: Response, next: Ne
 
 export const updateRoomTypeStatus = async (req: Request, res: Response, next: NextFunction) => {
     const body: StatusCreateInputSchema = req.body
+    const admin = req.admin
+    if (!admin) {
+        throw new AppError("not found admin data in req.admin", 404)
+    }
     const statusHistoryId: number = Number(req.params.statusHistoryId)
     const roomTypeId: number = Number(req.params.roomTypeId)
     const lockName: string = `roomType${roomTypeId}`
@@ -176,8 +180,12 @@ export const updateRoomTypeStatus = async (req: Request, res: Response, next: Ne
         if (overLappingStatus.length > 0) {
             checkOverlapConflict(overLappingStatus, body.statusTypeId, res)
         }
+        const roomTypeStatusUpdate: StatusUpdateSchema = {
+            ...body,
+            updatedBy: admin.uuid
+        }
         const result = await db.update(roomTypeStatusHistory)
-            .set(body)
+            .set(roomTypeStatusUpdate)
             .where(eq(roomTypeStatusHistory.id, statusHistoryId))
         next()
     } finally {

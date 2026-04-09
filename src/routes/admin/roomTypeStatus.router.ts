@@ -15,7 +15,7 @@ const router = Router()
 router.get('/status',isAdmin,getRoomTypeStatus);
 router.get('/:roomTypeId/status-history',isAdmin,getRoomTypeStatusById);
 router.post('/:roomTypeId/status-history',isAdmin,validate(statusCreateInputSchema),createRoomTypeStatus,getRoomTypeStatusById)
-router.patch('/:roomTypeId/status-history/:statusHistoryId',isAdmin,validate(statusBaseSchema),updateRoomTypeStatus,getRoomTypeStatusById)
+router.patch('/:roomTypeId/status-history/:statusHistoryId',isAdmin,validate(statusCreateInputSchema),updateRoomTypeStatus,getRoomTypeStatusById)
 router.delete('/:roomTypeId/status-history/:statusHistoryId',isAdmin,deleteRoomTypeStatus,getRoomTypeStatusById)
 
 
