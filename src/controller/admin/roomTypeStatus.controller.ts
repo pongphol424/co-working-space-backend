@@ -130,6 +130,7 @@ export const createRoomTypeStatus = async (req: Request, res: Response, next: Ne
             roomTypeId,
             {
                 table: roomTypeStatusHistory,
+                id: roomTypeStatusHistory.id,
                 roomIdField: roomTypeStatusHistory.roomTypeId,
                 statusTypeIdField: roomTypeStatusHistory.statusTypeId,
                 statusTypeNameField: roomStatusTypes.name,
@@ -204,6 +205,7 @@ export const updateRoomTypeStatus = async (req: Request, res: Response, next: Ne
                     roomTypeId,
                     {
                         table: roomTypeStatusHistory,
+                        id: roomTypeStatusHistory.id,
                         roomIdField: roomTypeStatusHistory.roomTypeId,
                         statusTypeIdField: roomTypeStatusHistory.statusTypeId,
                         statusTypeNameField: roomStatusTypes.name,
@@ -212,7 +214,7 @@ export const updateRoomTypeStatus = async (req: Request, res: Response, next: Ne
                     }
                 ) ?? []
                 if (overLappingStatus.length > 0) {
-                    checkOverlapConflict(overLappingStatus, newRoomTypeStatus.statusTypeId, res)
+                    checkOverlapConflict(overLappingStatus, newRoomTypeStatus.statusTypeId, res, statusHistoryId)
                 }
             })
         next()

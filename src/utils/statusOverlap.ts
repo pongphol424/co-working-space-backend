@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, gte, isNull, lt, lte, or } from "drizzle-orm";
+import { and, asc, eq, gt, gte, isNull, lt, lte, ne, or } from "drizzle-orm";
 import db from "../config/db";
 import roomStatusTypes from "../db/schema/room_status_types";
 import { StatusCreateInputSchema } from "../schema/status.schema";
@@ -12,6 +12,7 @@ import { AnyMySqlColumn, AnyMySqlTable } from "drizzle-orm/mysql-core";
 
 export const getOverlappingStatus = <
     Table extends AnyMySqlTable,
+    Id extends AnyMySqlColumn,
     RoomId extends AnyMySqlColumn,
     StatusTypeId extends AnyMySqlColumn,
     StatusTypeName extends AnyMySqlColumn,
@@ -21,11 +22,12 @@ export const getOverlappingStatus = <
     body: StatusCreateInputSchema,
     priority: number,
     roomId: number,
-    config: OverlapConfig<Table, RoomId, StatusTypeId, StatusTypeName, StartDate, EndDate>
+    config: OverlapConfig<Table, Id, RoomId, StatusTypeId, StatusTypeName, StartDate, EndDate>,
 ) => {
     if (body.endDate) {
         return db
             .select({
+                id: config.id,
                 startDate: config.startDateField,
                 endDate: config.endDateField,
                 statusTypeId: config.statusTypeIdField,
@@ -36,7 +38,7 @@ export const getOverlappingStatus = <
                 and(
                     eq(config.roomIdField, roomId),
                     lt(config.startDateField, body.endDate),
-                    gt(config.endDateField,body.startDate)
+                    gt(config.endDateField, body.startDate)
                 )
             )
             .innerJoin(roomStatusTypes,
@@ -49,6 +51,8 @@ export const getOverlappingStatus = <
     if (!body.endDate) {
         return db
             .select({
+                id: config.id,
+                statusHistory: config.roomIdField,
                 startDate: config.startDateField,
                 endDate: config.endDateField,
                 statusTypeId: config.statusTypeIdField,
@@ -82,19 +86,22 @@ export const getOverlappingStatus = <
 export const checkOverlapConflict = (
     overLappingStatus: OverlappingStatusArray,
     statusTypeId: number,
-    res: Response
+    res: Response,
+    statusHistoryId?: number
 ) => {
     let statusOverlap: string[] = []
     let statusLowerPrior: string[] = []
     for (let i: number = 0; i < overLappingStatus.length; i++) {
-        const endDateStr = overLappingStatus[i].endDate
-            ? overLappingStatus[i].endDate?.toISOString().split("T")[0]
-            : "ongoing"
-        if (overLappingStatus[i].statusTypeId === statusTypeId) {
-            statusOverlap.push(`${overLappingStatus[i].statusTypeName} status, which starting on ${overLappingStatus[i].startDate.toISOString().split("T")[0]} ${endDateStr === "ongoing" ? "and is still ongoing" : `to ${endDateStr}`}`)
-            continue
+        if (overLappingStatus[i].id !== statusHistoryId) {
+            const endDateStr = overLappingStatus[i].endDate
+                ? overLappingStatus[i].endDate?.toISOString().split("T")[0]
+                : "ongoing"
+            if (overLappingStatus[i].statusTypeId === statusTypeId) {
+                statusOverlap.push(`${overLappingStatus[i].statusTypeName} status, which starting on ${overLappingStatus[i].startDate.toISOString().split("T")[0]} ${endDateStr === "ongoing" ? "and is still ongoing" : `to ${endDateStr}`}`)
+                continue
+            }
+            statusLowerPrior.push(`${overLappingStatus[i].statusTypeName} status, which starting on ${overLappingStatus[i].startDate.toISOString().split("T")[0]} ${endDateStr === "ongoing" ? "and is still ongoing" : `to ${endDateStr}`}`)
         }
-        statusLowerPrior.push(`${overLappingStatus[i].statusTypeName} status, which starting on ${overLappingStatus[i].startDate.toISOString().split("T")[0]} ${endDateStr === "ongoing" ? "and is still ongoing" : `to ${endDateStr}`}`)
     }
     if (statusOverlap.length > 0) {
         let message: string = ''
@@ -105,5 +112,9 @@ export const checkOverlapConflict = (
         message = `Can't set this status. Because this status overlaps with the existing ${statusOverlap} . Please resolve the overlapping status before setting this status.`
         throw new AppError(message, 404)
     }
-    res.locals.message = `This status has lower priority than the existing ${statusLowerPrior} . Please ensure it works correctly.`
+    if(statusLowerPrior.length > 0){
+        res.locals.message = `This status has lower priority than the existing ${statusLowerPrior} . Please ensure it works correctly.`
+        return
+    }
+    res.locals.message = `Set status complete`
 }
